@@ -1,0 +1,73 @@
+export const SCHEMA_SQL = `
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+`;
+
+export const TABLES_SQL = `
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  budget_cap_usd REAL DEFAULT 15.0,
+  budget_used_usd REAL DEFAULT 0.0,
+  disk_quota_mb INTEGER DEFAULT 500,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK(status IN ('ACTIVE', 'PAUSED', 'COMPLETED'))
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  parent_task_id TEXT REFERENCES tasks(id),
+  title TEXT NOT NULL,
+  phase TEXT NOT NULL DEFAULT 'DEFINE',
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  priority INTEGER DEFAULT 1,
+  assigned_model TEXT,
+  agent_branch TEXT,
+  token_cost_usd REAL DEFAULT 0.0,
+  retry_count INTEGER DEFAULT 0,
+  error_message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK(status IN ('PENDING','RUNNING','WAITING_APPROVAL','COMPLETED','FAILED','DEAD')),
+  CHECK(phase IN ('DEFINE','PLAN','SPEC','BUILD','VERIFY','RELEASE'))
+);
+
+CREATE TRIGGER IF NOT EXISTS tasks_updated_at
+AFTER UPDATE ON tasks
+FOR EACH ROW
+WHEN OLD.updated_at = NEW.updated_at
+BEGIN
+  UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TABLE IF NOT EXISTS state_transitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT REFERENCES tasks(id),
+  from_phase TEXT NOT NULL,
+  to_phase TEXT NOT NULL,
+  git_snapshot TEXT NOT NULL,
+  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rfa_queue (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  resolution_note TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME,
+  CHECK(type IN ('SPEC_APPROVAL','BREAKAGE','BUDGET_EXCEEDED','CONFLICT','DEAD_LETTER','STAGING_RELEASE_APPROVAL','PROD_RELEASE_APPROVAL')),
+  CHECK(status IN ('PENDING','APPROVED','REJECTED','EXPIRED'))
+);
+
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`;
