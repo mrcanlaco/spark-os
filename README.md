@@ -1,36 +1,38 @@
 # SPARK OS
 
-**Hệ điều hành Điều phối và Quản trị Hạm đội AI Agentic**
+**AI Fleet Orchestration System** | **Hệ điều hành Điều phối Hạm đội AI**
 
-SPARK OS chuyển dịch vai trò lập trình viên từ "Người gõ prompt" sang "Cơ trưởng điều phối" — quản lý hạm đội AI Agent qua 6 pha nghiêm ngặt: DEFINE → PLAN → SPEC → BUILD → VERIFY → RELEASE.
+SPARK OS transforms developers from "prompt typists" into "fleet directors" — orchestrating AI agent fleets through 6 rigorous development phases: DEFINE → PLAN → SPEC → BUILD → VERIFY → RELEASE.
+
+SPARK OS chuyển dịch vai trò lập trình viên từ "Người gõ prompt" sang "Cơ trưởng điều phối" — quản lý hạm đội AI Agent qua 6 pha phát triển nghiêm ngặt.
 
 ## Quick Start
 
 ```bash
-# Cài đặt
+# Install / Cài đặt
 npm install
 cd dashboard && npm install && cd ..
 
-# Khởi tạo dự án
+# Initialize project / Khởi tạo dự án
 npx tsx src/index.ts init my-project
 
-# Xem trạng thái
+# Check status / Xem trạng thái
 npx tsx src/index.ts status
 
-# AI sinh task list từ spark.yaml
+# AI generates task list / AI sinh danh sách task
 npx tsx src/index.ts plan
 
-# Kiểm tra kết nối AI models
+# Health check AI models / Kiểm tra kết nối AI
 npx tsx src/index.ts ping-models
 
-# Khởi chạy Daemon (WebSocket port 9000)
+# Start Daemon (WebSocket port 9000)
 npx tsx src/index.ts daemon
 
-# Dashboard (port 3000)
+# Start Dashboard (port 3000)
 cd dashboard && npm run dev
 ```
 
-## Kiến trúc
+## Architecture / Kiến trúc
 
 ```
 USER (Director)
@@ -55,17 +57,17 @@ spark.yaml    LLM Engines
 (Project DNA) (Ollama / DeepSeek)
 ```
 
-## Cấu trúc dự án
+## Project Structure / Cấu trúc dự án
 
 ```
 spark-os/
 ├── src/
 │   ├── index.ts              # CLI entry point (commander)
 │   ├── commands/
-│   │   ├── init.ts           # spark init — tạo .spark/, DB, config
-│   │   ├── status.ts         # spark status — hiển thị project state
-│   │   ├── plan.ts           # spark plan — AI sinh task list
-│   │   └── ping-models.ts    # spark ping-models — health check AI
+│   │   ├── init.ts           # spark init — create .spark/, DB, config
+│   │   ├── status.ts         # spark status — display project state
+│   │   ├── plan.ts           # spark plan — AI task decomposition
+│   │   └── ping-models.ts    # spark ping-models — AI health check
 │   ├── daemon/
 │   │   ├── index.ts          # WebSocket server, git watcher, state sync
 │   │   └── health.ts         # RAM/CPU self-monitoring
@@ -81,24 +83,54 @@ spark-os/
 │       ├── layout.tsx
 │       ├── globals.css
 │       └── page.tsx          # Real-time tasks, RFA popup, events
-├── AGENTS.md                 # Quy tắc cho AI agents làm việc trong repo
+├── AGENTS.md                 # Rules for AI agents working in this repo
 ├── BACKLOG.md                # Cycle tracker + test results
-└── PRD_V5.md                 # Tài liệu kiến trúc chi tiết
+└── PRD_V5.md                 # Full architecture specification
 ```
 
-## Tính năng V1
+## Features / Tính năng V1
 
-- **CLI Commands:** `init`, `status`, `plan`, `ping-models`, `daemon`, `reload`
-- **SQLite WAL:** 5 bảng (projects, tasks, state_transitions, rfa_queue, events) + CHECK constraints + auto-update trigger
-- **Local Daemon:** WebSocket server, health monitor (300MB warning / 500MB kill), git watcher (5s poll)
-- **Real-time Dashboard:** Next.js + Tailwind, WebSocket sync < 1s, RFA approval popup
-- **Git Integration:** Auto-detect commits, parse `[phase]` convention → auto phase transition
-- **Multi-AI Router:** Pluggable IModelAdapter (Ollama local + DeepSeek API), heuristic fallback
-- **AI Task Planning:** Đọc spark.yaml → AI phân tích tech stack → sinh task list vào DB
-- **RFA System:** Human-in-the-loop approval — Agent dừng khi cần phê duyệt, Dashboard popup, Approve → AI sinh code vào sandbox
-- **Security:** .env.local cho secrets (gitignored), code sinh vào .spark/sandbox/ (không trực tiếp vào project)
+**CLI Commands**
+- `spark init` — Initialize project with .spark/, SQLite DB, config files
+- `spark status` — Display project state, tasks, budget, RFA queue
+- `spark plan` — AI reads spark.yaml and generates development tasks
+- `spark ping-models` — Health check configured AI model adapters
+- `spark daemon` — Start local daemon with WebSocket server
+- `spark reload` — Reload config (Windows-compatible SIGHUP alternative)
 
-## Cấu hình (`spark.yaml`)
+**Local Daemon**
+- SQLite WAL mode — concurrent read/write, ACID transactions
+- WebSocket server (port 9000) — real-time state sync < 1s
+- Git watcher — auto-detect commits every 5s
+- Phase transition — parse `[phase]` in commit messages → auto-update task state
+- Health monitor — 300MB warning + GC, 500MB kill + restart, 30s interval
+
+**Dashboard (Next.js)**
+- Real-time connection status with exponential backoff reconnect
+- Live task list with color-coded status badges
+- RFA approval popup with JSON payload display
+- Recent git events timeline
+- Approve/Reject buttons → WebSocket callback to Daemon
+
+**AI Integration**
+- Pluggable `IModelAdapter` interface (Ollama, DeepSeek, extensible)
+- Heuristic-first skill router (cost-based → capability-based)
+- Fallback: cheap model first → escalate on failure
+- Token budget tracking per task with project-level caps
+
+**Security**
+- `.env.local` for secrets (gitignored, never in DB)
+- AI-generated code written to `.spark/sandbox/` (not directly to project)
+- 3-layer sandbox: L1 file scoping → L2 runtime flags → L3 Docker isolation
+- Airlock rule: all AI output goes through VERIFY phase before merge
+
+**RFA System (Human-in-the-Loop)**
+- Agent pauses on high-risk decisions → creates approval request
+- Dashboard popup shows payload details
+- Human approves → Daemon unlocks task → AI generates code
+- Full audit trail: resolved_at timestamp, resolution notes
+
+## Configuration / Cấu hình (`spark.yaml`)
 
 ```yaml
 project:
@@ -107,6 +139,7 @@ project:
 
 budget:
   budget_cap_usd: 15.0
+  shared_overflow_pool: 10.0
 
 model_registry:
   adapters:
@@ -119,11 +152,33 @@ model_registry:
       model_name: "deepseek-coder"
 ```
 
-## System Requirements
+## System Requirements / Yêu cầu hệ thống
 
-- **Minimum:** 16GB RAM, SSD, Node.js 20+, Git 2.40+
-- **Local AI:** NVIDIA GPU 8GB VRAM hoặc Apple Silicon 16GB+
-- **Fallback:** Không GPU → auto-route sang API cloud
+| | Minimum | Recommended (Local AI) |
+|---|---------|----------------------|
+| **RAM** | 16GB | 16GB+ |
+| **Storage** | SSD, 10GB free | SSD, 10GB free |
+| **GPU** | Not required | NVIDIA 8GB VRAM / Apple Silicon 16GB |
+| **Runtime** | Node.js 20+, Git 2.40+ | Node.js 20+, Git 2.40+ |
+| **Fallback** | Auto-route to cloud API | Local Ollama + cloud API |
+
+## Development Cycles / Các Cycle phát triển
+
+All 11 cycles completed ✅ — see [BACKLOG.md](BACKLOG.md) for details.
+
+| Cycle | Description | Status |
+|-------|------------|--------|
+| 1a | CLI `spark init` | ✅ |
+| 1b | CLI `spark status` | ✅ |
+| 1c | Local Daemon + SQLite WAL | ✅ |
+| 1d | WebSocket + Dashboard | ✅ |
+| 1e | Real-time state sync | ✅ |
+| 2a | Git branch watcher | ✅ |
+| 2b | Auto phase transition | ✅ |
+| 3a | Multi-AI adapter setup | ✅ |
+| 3b | AI task decomposition | ✅ |
+| 4a | RFA trigger popup | ✅ |
+| 4b | Approve → AI code gen | ✅ |
 
 ## License
 
