@@ -14,7 +14,7 @@ export async function planTasks(): Promise<void> {
   dotenv.config({ path: path.join(rootDir, '.env.local') });
 
   if (!fs.existsSync(yamlPath) || !fs.existsSync(dbPath)) {
-    console.error('[SPARK] spark.yaml hoặc spark.db không tồn tại. Chạy "spark init" trước.');
+    console.error('[SPARK] spark.yaml or spark.db not found. Run "spark init" first.');
     return;
   }
   
@@ -37,13 +37,12 @@ export async function planTasks(): Promise<void> {
     }
   }
 
-  // If no model answers ping, fallback to deepseek with mock
   if (!activeAdapter) {
-    console.log('[SPARK] Các model không phản hồi ping, dùng mock DeepSeekAdapter...');
+    console.log('[SPARK] No model responded, using mock DeepSeekAdapter...');
     activeAdapter = new DeepSeekAdapter('deepseek-cloud', '');
   }
 
-  console.log(`[SPARK] Sử dụng model ${activeAdapter.id} để phân tích spark.yaml...`);
+  console.log(`[SPARK] Using model ${activeAdapter.id}...`);
 
   const prompt = `You are an expert AI architect. Analyze the following project configuration and generate 5-10 development tasks.
 Return ONLY a valid JSON array of objects, with NO markdown formatting, NO backticks, and NO extra text.
@@ -58,34 +57,58 @@ ${yamlContent}
 `;
 
   try {
-    let responseText = await activeAdapter.generateText(prompt);
-    
-    // Clean up response if it contains markdown code blocks
-    responseText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const result = await activeAdapter.generateText(prompt);
+    let responseText = result.text.replace(/\`\`\`json/gi, '').replace(/\`\`\`/g, '').trim();
     
     const tasks = JSON.parse(responseText);
     if (!Array.isArray(tasks)) throw new Error('AI did not return an array');
     
     const db = new Database(dbPath);
-    const project = db.prepare('SELECT id FROM projects LIMIT 1').get() as any;
+    const project = db.prepare('SELECT id, budget_cap_usd, budget_used_usd FROM projects LIMIT 1').get() as any;
     if (!project) throw new Error('No project found in db');
     
     const insertTask = db.prepare(`
-      INSERT INTO tasks (id, project_id, title, phase, priority, assigned_model, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
+      INSERT INTO tasks (id, project_id, title, phase, priority, assigned_model, status, token_cost_usd)
+      VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
     `);
+
+    const promptHash = crypto.createHash('md5').update(prompt).digest('hex').slice(0, 16);
+
+    let hasDecisionLogs = true;
+    try {
+      db.prepare('SELECT 1 FROM decision_logs LIMIT 1').get();
+    } catch {
+      hasDecisionLogs = false;
+    }
     
     let count = 0;
+    const costPerTask = tasks.length > 0 ? result.cost_usd / tasks.length : 0;
     db.transaction(() => {
       for (const t of tasks) {
-        insertTask.run(crypto.randomUUID(), project.id, t.title, t.phase || 'DEFINE', t.priority || 1, t.assigned_model || activeAdapter?.id);
+        const taskId = crypto.randomUUID();
+        insertTask.run(taskId, project.id, t.title, t.phase || 'DEFINE', t.priority || 1, t.assigned_model || activeAdapter?.id, costPerTask);
+        if (hasDecisionLogs) {
+          db.prepare('INSERT INTO decision_logs (task_id, prompt_hash, model, tokens_used, cost_usd) VALUES (?, ?, ?, ?, ?)').run(taskId, promptHash, activeAdapter!.id, result.tokens_used, costPerTask);
+        }
         count++;
       }
     })();
+
+    const newBudget = db.prepare('SELECT budget_used_usd, budget_cap_usd FROM projects WHERE id = ?').get(project.id) as any;
+    if (newBudget && newBudget.budget_used_usd >= newBudget.budget_cap_usd * 0.9) {
+      const rfaId = crypto.randomUUID();
+      const firstTask = db.prepare('SELECT id FROM tasks WHERE project_id = ? LIMIT 1').get(project.id) as any;
+      if (firstTask) {
+        db.prepare("INSERT INTO rfa_queue (id, task_id, type, payload, status) VALUES (?, ?, 'BUDGET_EXCEEDED', ?, 'PENDING')").run(
+          rfaId, firstTask.id, JSON.stringify({ used: newBudget.budget_used_usd, cap: newBudget.budget_cap_usd })
+        );
+        console.log(`[SPARK] Budget at ${Math.round((newBudget.budget_used_usd / newBudget.budget_cap_usd) * 100)}% - RFA created`);
+      }
+    }
     
     db.close();
-    console.log(`[SPARK] Đã sinh và lưu ${count} tasks vào database.`);
+    console.log(`[SPARK] Generated ${count} tasks (cost: $${result.cost_usd.toFixed(4)}, tokens: ${result.tokens_used})`);
   } catch (err) {
-    console.error('[SPARK] Lỗi khi sinh tasks:', err);
+    console.error('[SPARK] Error generating tasks:', err);
   }
 }

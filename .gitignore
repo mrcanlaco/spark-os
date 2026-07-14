@@ -7,3 +7,5 @@ dist/
 *.db-shm
 dashboard/.next/
 dashboard/node_modules/
+test-workspace/
+spark.yaml
